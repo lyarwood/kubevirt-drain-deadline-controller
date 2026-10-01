@@ -1,4 +1,4 @@
-# kubevirt-deadline-eviction-plugin
+# kubevirt-drain-deadline-controller
 
 > **⚠️ Experimental — not production-ready**
 >

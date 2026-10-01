@@ -1,4 +1,4 @@
-module github.com/lyarwood/kubevirt-deadline-eviction-plugin/tests/functional
+module github.com/lyarwood/kubevirt-drain-deadline-controller/tests/functional
 
 go 1.26.0
 

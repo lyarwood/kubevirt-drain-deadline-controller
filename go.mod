@@ -1,4 +1,4 @@
-module github.com/lyarwood/kubevirt-deadline-eviction-plugin
+module github.com/lyarwood/kubevirt-drain-deadline-controller
 
 go 1.26.0
 

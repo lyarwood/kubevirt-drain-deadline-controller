@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/lyarwood/kubevirt-deadline-eviction-plugin/pkg/controller"
+	"github.com/lyarwood/kubevirt-drain-deadline-controller/pkg/controller"
 )
 
 var scheme = runtime.NewScheme()

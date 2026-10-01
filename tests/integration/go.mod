@@ -1,9 +1,9 @@
-module github.com/lyarwood/kubevirt-deadline-eviction-plugin/tests/integration
+module github.com/lyarwood/kubevirt-drain-deadline-controller/tests/integration
 
 go 1.26.0
 
 require (
-	github.com/lyarwood/kubevirt-deadline-eviction-plugin v0.0.0
+	github.com/lyarwood/kubevirt-drain-deadline-controller v0.0.0
 	github.com/onsi/ginkgo/v2 v2.33.0
 	github.com/onsi/gomega v1.44.0
 	k8s.io/api v0.36.4
@@ -76,4 +76,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/lyarwood/kubevirt-deadline-eviction-plugin => ../../
+replace github.com/lyarwood/kubevirt-drain-deadline-controller => ../../
