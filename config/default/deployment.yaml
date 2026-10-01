@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deadline-eviction-controller
+  namespace: kubevirt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deadline-eviction-controller
+  template:
+    metadata:
+      labels:
+        app: deadline-eviction-controller
+    spec:
+      serviceAccountName: deadline-eviction-controller
+      containers:
+      - name: controller
+        image: registry:5000/deadline-eviction-controller:latest
+        args:
+        - --leader-elect=true
+        - --default-drain-deadline-duration=1h
