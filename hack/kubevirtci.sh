@@ -6,6 +6,12 @@ export KUBEVIRT_PROVIDER="${KUBEVIRT_PROVIDER:-k8s-1.36}"
 export KUBEVIRT_VERSION=${KUBEVIRT_VERSION:-main}
 export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2609300856-4bec1cc7}
 
+# Ensure KUBEVIRT_MEMORY_SIZE has a unit suffix (M/G); without it, kubevirtci's
+# vm.sh generates QEMU memory-backend-ram with size in bytes, failing NUMA check.
+if [[ -n "${KUBEVIRT_MEMORY_SIZE:-}" && "${KUBEVIRT_MEMORY_SIZE}" =~ ^[0-9]+$ ]]; then
+  export KUBEVIRT_MEMORY_SIZE="${KUBEVIRT_MEMORY_SIZE}M"
+fi
+
 # kubevirtci defaults to /run/podman/podman.sock (system socket); rootless podman
 # uses a per-user socket instead. Detect it here so cluster-up finds the runtime.
 if [[ -z "${KUBEVIRTCI_PODMAN_SOCKET:-}" ]]; then

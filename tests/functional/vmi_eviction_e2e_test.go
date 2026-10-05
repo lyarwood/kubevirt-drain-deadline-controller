@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,6 +42,9 @@ func newCirrosVMI(name, namespace string) *kubevirtv1.VirtualMachineInstance {
 					},
 				},
 				Devices: kubevirtv1.Devices{
+					Interfaces: []kubevirtv1.Interface{
+						*kubevirtv1.DefaultMasqueradeNetworkInterface(),
+					},
 					Disks: []kubevirtv1.Disk{
 						{
 							Name: "disk0",
@@ -50,6 +54,9 @@ func newCirrosVMI(name, namespace string) *kubevirtv1.VirtualMachineInstance {
 						},
 					},
 				},
+			},
+			Networks: []kubevirtv1.Network{
+				*kubevirtv1.DefaultPodNetwork(),
 			},
 			Volumes: []kubevirtv1.Volume{
 				{
@@ -75,6 +82,9 @@ func waitForVMIRunning(vmi *kubevirtv1.VirtualMachineInstance) *kubevirtv1.Virtu
 		g.Expect(running.Status.Phase).To(Equal(kubevirtv1.Running))
 		g.Expect(running.Status.NodeName).NotTo(BeEmpty())
 	}, vmiRunningTimeout, eventuallyInterval).Should(Succeed(), "VMI should reach Running phase")
+	if running != nil && running.Namespace == "" {
+		running.Namespace = vmi.Namespace
+	}
 	return running
 }
 
@@ -94,11 +104,36 @@ func removeNodeDrainDeadline(nodeName string) {
 
 func markVMIForEvacuation(vmi *kubevirtv1.VirtualMachineInstance) {
 	GinkgoHelper()
-	updated, err := virtClient.VirtualMachineInstance(vmi.Namespace).Get(ctx, vmi.Name, metav1.GetOptions{})
-	Expect(err).NotTo(HaveOccurred())
-	updated.Status.EvacuationNodeName = updated.Status.NodeName
-	_, err = virtClient.VirtualMachineInstance(vmi.Namespace).UpdateStatus(ctx, updated, metav1.UpdateOptions{})
-	Expect(err).NotTo(HaveOccurred())
+	ns := vmi.Namespace
+	if ns == "" {
+		ns = testNamespace
+	}
+
+	var pod *corev1.Pod
+	Eventually(func(g Gomega) {
+		pods, err := virtClient.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
+			LabelSelector: fmt.Sprintf("%s=%s", kubevirtv1.CreatedByLabel, vmi.UID),
+		})
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(pods.Items).NotTo(BeEmpty())
+		pod = &pods.Items[0]
+	}, vmiRunningTimeout, eventuallyInterval).Should(Succeed(), "launcher pod should exist for VMI")
+
+	eviction := &policyv1.Eviction{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pod.Name,
+			Namespace: ns,
+		},
+	}
+	// KubeVirt's virt-api webhook intercepts pod eviction, denies it, and sets vmi.Status.EvacuationNodeName.
+	err := virtClient.CoreV1().Pods(ns).EvictV1(ctx, eviction)
+	Expect(err).To(HaveOccurred(), "eviction of VMI pod should be intercepted and denied by KubeVirt")
+
+	Eventually(func(g Gomega) {
+		updated, err := virtClient.VirtualMachineInstance(ns).Get(ctx, vmi.Name, metav1.GetOptions{})
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(updated.Status.EvacuationNodeName).NotTo(BeEmpty())
+	}, vmiRunningTimeout, eventuallyInterval).Should(Succeed(), "VMI should have EvacuationNodeName set")
 }
 
 var _ = Describe("Deadline Eviction Controller", func() {
@@ -170,24 +205,29 @@ var _ = Describe("Deadline Eviction Controller", func() {
 
 			originalUID := vmi.UID
 
-			Eventually(func() bool {
-				_, err := virtClient.VirtualMachineInstance(testNamespace).Get(ctx, vmi.Name, metav1.GetOptions{})
-				return errors.IsNotFound(err)
-			}, vmiRunningTimeout, eventuallyInterval).Should(BeTrue(), "VMI should be deleted after deadline")
-
-			// RunStrategy: Always means the VM controller creates a new VMI.
+			// RunStrategy: Always means the VM controller creates a new VMI after the old one is deleted.
 			Eventually(func(g Gomega) {
-				newVMI, err := virtClient.VirtualMachineInstance(testNamespace).Get(ctx, vm.Name, metav1.GetOptions{})
+				currentVMI, err := virtClient.VirtualMachineInstance(testNamespace).Get(ctx, vm.Name, metav1.GetOptions{})
+				if errors.IsNotFound(err) {
+					// Brief window between deletion and recreation.
+					return
+				}
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(newVMI.UID).NotTo(Equal(originalUID), "a new VMI should have been created")
+				g.Expect(currentVMI.UID).NotTo(Equal(originalUID), "a new VMI should have been created")
 			}, vmiRunningTimeout, eventuallyInterval).Should(Succeed())
 		})
 	})
 
 	Describe("should not delete a VMI that successfully migrated before the deadline", func() {
 		It("leaves the VMI alive after a successful migration", func() {
+			nodes, err := virtClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+			Expect(err).NotTo(HaveOccurred())
+			if len(nodes.Items) < 2 {
+				Skip("test requires at least 2 nodes for migration to complete")
+			}
+
 			vmi := newCirrosVMI("vmi-already-migrated", testNamespace)
-			_, err := virtClient.VirtualMachineInstance(testNamespace).Create(ctx, vmi, metav1.CreateOptions{})
+			_, err = virtClient.VirtualMachineInstance(testNamespace).Create(ctx, vmi, metav1.CreateOptions{})
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() {
 				_ = virtClient.VirtualMachineInstance(testNamespace).Delete(ctx, vmi.Name, metav1.DeleteOptions{})

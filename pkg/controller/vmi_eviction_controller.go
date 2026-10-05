@@ -37,7 +37,7 @@ func (r *VMIEvictionReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if vmi.Status.EvacuationNodeName == "" {
+	if vmi.Status.EvacuationNodeName == "" || vmi.IsFinal() || vmi.DeletionTimestamp != nil {
 		return ctrl.Result{}, nil
 	}
 
@@ -129,7 +129,6 @@ func (r *VMIEvictionReconciler) ensureMigration(ctx context.Context, vmi *kubevi
 		// Failed migration: fall through to create a new one.
 	}
 
-	priority := kubevirtv1.PrioritySystemMaintenance
 	migration := &kubevirtv1.VirtualMachineInstanceMigration{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: fmt.Sprintf("%s-deadline-eviction-", vmi.Name),
@@ -137,8 +136,7 @@ func (r *VMIEvictionReconciler) ensureMigration(ctx context.Context, vmi *kubevi
 			Annotations:  map[string]string{AnnotationManaged: "true"},
 		},
 		Spec: kubevirtv1.VirtualMachineInstanceMigrationSpec{
-			VMIName:  vmi.Name,
-			Priority: &priority,
+			VMIName: vmi.Name,
 		},
 	}
 
